@@ -238,6 +238,19 @@ describe('commit message', function() {
       `${type}(${scope}): ${jira} ${subject}\n\n${longBodySplit}\n\n${breakingChange}${breaking}\n\n${longIssuesSplit}`
     );
   });
+  it('skip jira task when optional', function() {
+    expect(
+      commitMessage(
+        {
+          type,
+          scope,
+          jira: '',
+          subject
+        },
+        { jiraOptional: true }
+      )
+    ).to.equal(`${type}(${scope}): ${subject}`);
+  });
 });
 
 describe('validation', function() {
@@ -259,6 +272,19 @@ describe('validation', function() {
         subject: ''
       })
     ).to.throw(`The subject must have at least 2 characters`);
+  });
+  it('empty jira if not optional', function() {
+    expect(() =>
+      commitMessage(
+        {
+          type,
+          scope,
+          jira: '',
+          subject
+        },
+        { jiraOptional: false }
+      )
+    ).to.throw(`Answer '' to question 'jira' was invalid`);
   });
 });
 
@@ -418,6 +444,30 @@ describe('commitlint config header-max-length', function() {
     });
   }
 });
+
+describe('questions', function() {
+  it('default jira question', function() {
+    expect(questionPrompt('jira')).to.be.eq('Enter JIRA issue (DAZ-12345):');
+  });
+  it('optional jira question', function() {
+    expect(questionPrompt('jira', [], { jiraOptional: true })).to.be.eq(
+      'Enter JIRA issue (DAZ-12345) (optional):'
+    );
+  });
+  it('scope with list', function() {
+    expect(
+      questionPrompt('scope', [], { scopes: ['scope1', 'scope2'] })
+    ).to.be.eq(
+      'What is the scope of this change (e.g. component or file name): (select from the list)'
+    );
+  });
+  it('scope without list', function() {
+    expect(questionPrompt('scope')).to.be.eq(
+      'What is the scope of this change (e.g. component or file name): (press enter to skip)'
+    );
+  });
+});
+
 function commitMessage(answers, options) {
   options = options || defaultOptions;
   var result = null;
@@ -435,7 +485,8 @@ function commitMessage(answers, options) {
     },
     function(message) {
       result = message;
-    }
+    },
+    true
   );
   return result;
 }
@@ -443,6 +494,7 @@ function commitMessage(answers, options) {
 function processQuestions(questions, answers, options) {
   for (var i in questions) {
     var question = questions[i];
+
     var answer = answers[question.name];
     var validation =
       answer === undefined || !question.validate

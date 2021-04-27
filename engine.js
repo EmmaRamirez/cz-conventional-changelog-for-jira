@@ -6,6 +6,7 @@ var longest = require('longest');
 var rightPad = require('right-pad');
 var chalk = require('chalk');
 const branch = require('git-branch');
+const boxen = require('boxen');
 
 var defaults = require('./defaults');
 const LimitedInputPrompt = require('./LimitedInputPrompt');
@@ -44,7 +45,7 @@ module.exports = function(options) {
   const maxHeaderWidth = getFromOptionsOrDefaults('maxHeaderWidth');
 
   const branchName = branch.sync() || '';
-  const jiraIssueRegex = /(?<jiraIssue>\/[A-Z]+-\d+)/;
+  const jiraIssueRegex = /(?<jiraIssue>(?<!([A-Z0-9]{1,10})-?)[A-Z0-9]+-\d+)/;
   const matchResult = branchName.match(jiraIssueRegex);
   const jiraIssue =
     matchResult && matchResult.groups && matchResult.groups.jiraIssue;
@@ -65,7 +66,7 @@ module.exports = function(options) {
     //
     // By default, we'll de-indent your commit
     // template and will keep empty lines.
-    prompter: function(cz, commit) {
+    prompter: function(cz, commit, testMode) {
       cz.registerPrompt('limitedInput', LimitedInputPrompt);
 
       // Let's ask some questions of the user
@@ -89,11 +90,16 @@ module.exports = function(options) {
           message:
             'Enter JIRA issue (' +
             getFromOptionsOrDefaults('jiraPrefix') +
-            '-12345):',
+            '-12345)' +
+            (options.jiraOptional ? ' (optional)' : '') +
+            ':',
           when: options.jiraMode,
-          default: jiraIssue ? jiraIssue.substring(1) : '',
+          default: jiraIssue || '',
           validate: function(jira) {
-            return /^[A-Z]+-[0-9]+$/.test(jira);
+            return (
+              (options.jiraOptional && !jira) ||
+              /^(?<!([A-Z0-9]{1,10})-?)[A-Z0-9]+-\d+$/.test(jira)
+            );
           },
           filter: function(jira) {
             return jira.toUpperCase();
@@ -106,9 +112,7 @@ module.exports = function(options) {
           choices: hasScopes ? options.scopes : undefined,
           message:
             'What is the scope of this change (e.g. component or file name): ' +
-            hasScopes
-              ? '(select from the list)'
-              : '(press enter to skip)',
+            (hasScopes ? '(select from the list)' : '(press enter to skip)'),
           default: options.defaultScope,
           filter: function(value) {
             return value.trim().toLowerCase();
@@ -151,6 +155,15 @@ module.exports = function(options) {
           default: false
         },
         {
+          type: 'confirm',
+          name: 'isBreaking',
+          message: 'You do know that this will bump the major version, are you sure?',
+          default: false,
+          when: function(answers) {
+            return answers.isBreaking;
+          }
+        },
+        {
           type: 'input',
           name: 'breaking',
           message: 'Describe the breaking changes:\n',
@@ -187,7 +200,7 @@ module.exports = function(options) {
           },
           default: options.defaultIssues ? options.defaultIssues : undefined
         }
-      ]).then(function(answers) {
+      ]).then(async function(answers) {
         var wrapOptions = {
           trim: true,
           cut: false,
@@ -215,7 +228,27 @@ module.exports = function(options) {
 
         var issues = answers.issues ? wrap(answers.issues, wrapOptions) : false;
 
-        commit(filter([head, body, breaking, issues]).join('\n\n'));
+        const fullCommit = filter([head, body, breaking, issues]).join('\n\n');
+
+        if (testMode) {
+          return commit(fullCommit);
+        }
+
+        console.log();
+        console.log(chalk.underline('Commit preview:'));
+        console.log(boxen(chalk.green(fullCommit), { padding: 1, margin: 1 }));
+
+        const { doCommit } = await cz.prompt([
+          {
+            type: 'confirm',
+            name: 'doCommit',
+            message: 'Are you sure that you want to commit?'
+          }
+        ]);
+
+        if (doCommit) {
+          commit(fullCommit);
+        }
       });
     }
   };
